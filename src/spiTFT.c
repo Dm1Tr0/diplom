@@ -487,7 +487,6 @@ void display_init(uint16_t display_w, uint16_t display_h)
                 char boof[100];
 
         }
-
 }
 
 void parce_print(char *string, size_t s_sz) {
@@ -569,33 +568,32 @@ int main (void)
         size_t len = 0;
         //size_t l = 1;
 
-        sprintf(p_buff,"wow");
-        gfx_puts(p_buff);
+        //sprintf(p_buff,"wow");
+        //gfx_puts(p_buff);
 
-        // while (1) {
-        //
-	//         if (len >= sizeof(buf)) {
-	// 		break;
-	// 	}
-        //
-	// 	if (usb_vcp_avail()) {
-        //                 if(!isclean) {
+        while (1) {
+
+        	if (len >= sizeof(buf)) {
+	 		break;
+        	}
+
+        	if (usb_vcp_avail()) {
+                   if(!isclean) {
         //                         fill_screen(TFT9341_BLACK);
         //                         gfx_setCursor(0,40);
         //                         isclean =true;
-        //                 }
-	// 		char ch = usb_vcp_recv_byte();
-	// 		buf[len++] = ch;
-        //                 // sprintf(p_buff,"%c", ch); //reading all special simbols
-        //         	// gfx_puts(p_buff);
-        //                 //
-        //                 // sprintf(p_buff,"-%ds\n", len); //reading all special simbols
-        //         	// gfx_puts(p_buff);
-        //                 // memset(p_buff,0,256);
-        //
-        //                 isWriten = true;
-	// 	}
-        //
+            }
+	 		char ch = usb_vcp_recv_byte();
+	 		buf[len++] = ch;
+	 			sprintf(p_buff,"%c", ch); //reading all special simbols
+                gfx_puts(p_buff);
+                         // sprintf(p_buff,"-%ds\n", len); //reading all special simbols
+                 	// gfx_puts(p_buff);
+                         // memset(p_buff,0,256);
+
+                         isWriten = true;
+        	}
+
         //         if (!usb_vcp_avail() && isWriten) {
         //                 sprintf(p_buff, "%s", buf); //reading all special simbols
         //         	gfx_puts(p_buff);
@@ -607,10 +605,10 @@ int main (void)
         //                 len = 0;
         //         }
         //
-        //         nvic_disable_irq(NVIC_TIM7_IRQ);
-        //         __WFI(); // waiting for usb otg fs interrupt
-        //         nvic_disable_irq(NVIC_TIM7_IRQ);
-        // }
+        	nvic_disable_irq(NVIC_TIM7_IRQ);
+        	__WFI(); // waiting for usb otg fs interrupt
+            nvic_disable_irq(NVIC_TIM7_IRQ);
+         }
 
 
 
