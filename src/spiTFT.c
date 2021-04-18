@@ -48,6 +48,11 @@ sk_pin TFT_DC     = { .port=sk_port_A, .pin=3, .inv=false, .pull=GPIO_PUPD_PULLU
 sk_pin TFT_RESET  = { .port=sk_port_A, .pin=2, .inv=false, .pull=GPIO_PUPD_NONE, .mode=GPIO_MODE_OUTPUT};
 // manualy initialized in spi_init
 sk_pin TFT_CS     = { .port=sk_port_A, .pin=4, .inv=false, .pull=GPIO_PUPD_NONE, .mode=GPIO_MODE_OUTPUT};
+//PB15 grean DI (mosi)
+//PB13 yelow CLK
+//PD8 brown CS
+//PB14 read DO (miso)
+
 
 static const char* parametrs[] = {
         "T = %s C\n",
@@ -257,7 +262,7 @@ void spi_tft_init (void)
         // SET APB2 presc to 2
 
 
-        spi_enable_ss_output(SPI1);
+    spi_enable_ss_output(SPI1);
 	// as a default
 	//cpha = 0
 	//cpol = 0
@@ -265,6 +270,150 @@ void spi_tft_init (void)
 	spi_enable(SPI1);
 }
 
+#define W25_ENR 0x66
+#define W25_R 0x99
+#define W25_READ 0x03
+#define W25_JED_ID 0xF9
+
+uint8_t rx_buf[1025];
+uint8_t tx_buf[10];
+
+void spi_flash_init (void)
+{
+        // don`t forger about clocking of GPIO_B and GPIO_D
+	//PB15 grean DI (mosi)
+	//PB13 yelow CLK
+	//PD8 brown CS
+	//PB14 read DO (miso)
+
+	rcc_periph_clock_enable(RCC_GPIOB);
+	rcc_periph_clock_enable(RCC_GPIOD);
+
+	GPIO_MODER(GPIOD) |= GPIO_MODE(8, GPIO_MODE_OUTPUT);
+	GPIO_MODER(GPIOB) |= GPIO_MODE(13, GPIO_MODE_OUTPUT);
+	GPIO_MODER(GPIOB) |= GPIO_MODE(14, GPIO_MODE_OUTPUT);
+	GPIO_MODER(GPIOB) |= GPIO_MODE(15, GPIO_MODE_OUTPUT);
+
+	gpio_set_output_options(GPIOD, GPIO_OTYPE_PP, GPIO_OSPEED_100MHZ, (1 << 8));
+	gpio_set_output_options(GPIOB, GPIO_OTYPE_PP, GPIO_OSPEED_100MHZ, (1 << 13) | (1 << 14) | (1 << 15));
+	gpio_set_af(GPIOA, GPIO_AF5, (1 << 13) | (1 << 14) | (1 << 15));
+	gpio_mode_setup(GPIOA, GPIO_MODE_AF, GPIO_PUPD_NONE, (1 << 13) | (1 << 14) | (1 << 15));
+	// manual cs
+
+	rcc_periph_clock_enable(RCC_SPI2);
+
+	spi_disable(SPI2);
+
+	// in case of problems with data transfer
+	spi_set_baudrate_prescaler(SPI2, SPI_CR1_BR_FPCLK_DIV_32);
+
+	spi_set_master_mode(SPI2);
+
+	spi_set_full_duplex_mode(SPI2);
+
+	spi_set_dff_8bit(SPI2);
+
+	spi_disable_crc(SPI2);
+
+	spi_send_msb_first(SPI2);
+
+
+
+
+    spi_enable_ss_output(SPI2);
+	// as a default
+	//cpha = 0
+	//cpol = 0
+
+	spi_enable(SPI1);
+}
+
+static void flash_tx(uint32_t len, void *data)
+{
+	uint8_t *d = data;
+	if ((!len) || (NULL == d))
+		return;
+
+	for (int32_t i = len - 1; i >= 0; i--) {
+		spi_send(SPI2, d[i]);
+		spi_read(SPI2);		// dummy read to provide delay
+	}
+}
+
+static void flash_rx(uint32_t len, void *data)
+{
+	// Note:
+	// Our spi chip uses Big Endian byte order, while MCU is Little Endian
+	// This means 0xABCD will be represented as ABCD on MCU, and CDAB on spi chip
+	// (spi chip expects higher address bytes to be transfered first)
+	// This means we either need to declare our structures and arrays as big endian
+	// with __attribute__(( scalar_storage_order("big-endian") )), which is more portable
+	// but leads to heavier computations,
+	// or solve this at transfer level, sending and receiving higher bytes first
+	uint8_t *d = data;
+	if ((!len) || (NULL == d))
+		return;
+
+	for (int32_t i = len - 1; i >= 0; i--) {
+		spi_send(SPI1, 0);
+		d[i] = spi_read(SPI1);
+	}
+}
+
+void flash_csen()
+{
+	gpio_set(GPIOD, 1 << 8);
+}
+
+void flash_csdis()
+{
+	gpio_clear(GPIOD, 1 << 8);
+}
+
+void flash_reset()
+{
+	flash_csen();
+	tx_buf[0] = W25_ENR;
+	tx_buf[1] = W25_R;
+	flash_tx(2, tx_buf);
+	flash_csdis();
+}
+
+void flash_init()
+{
+    t7_delay_ms(120);
+    flash_reset();
+    t7_delay_ms(120);
+}
+
+void flash_read_data(uint32_t addr, uint8_t* data, uint32_t sz)
+{
+	flash_csen();
+	tx_buf[0] = W25_READ;
+	tx_buf[1] = (addr >> 16) & 0xFF;
+	tx_buf[2] = (addr >> 8) & 0xFF;
+	tx_buf[3] = addr & 0xFF;
+	flash_tx(4 ,tx_buf);
+	flash_rx(sz ,data);
+	flash_csdis();
+}
+
+uint32_t f_read_id(void) {
+	uint8_t dt[4];
+	tx_buf[0] = W25_JED_ID;
+	flash_csen();
+	flash_tx(1, tx_buf);
+	flash_rx(3, dt);
+	flash_csdis();
+	return (dt[0] << 16) | (dt[1] << 8) | (dt[2]);
+}
+
+uint32_t f_print_id(uint32_t id)
+{
+	char buff[1025];
+	sprintf(buff, "id = %x\n", id);
+	gfx_puts(buff);
+}
 
 void set_addr_window(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1)
 {
@@ -482,11 +631,6 @@ void display_init(uint16_t display_w, uint16_t display_h)
         cs_off();
         display_hight = display_h;
         display_width = display_w;
-
-        void print_state(char * string, int vall){
-                char boof[100];
-
-        }
 }
 
 void parce_print(char *string, size_t s_sz) {
@@ -530,10 +674,11 @@ int main (void)
         clock_init();
         timer_7_init(upd_on_ovf, 168000000ul, 1000ul , 16ul);
         sk_pin_toggle(sk_io_led_red);
-        //spi initialize
-
+        //spi initializep
         mode_TFT_pins();
         cs_off();
+        flash_init();
+        flash_csdis();
         spi_tft_init();
         usb_vcp_init();
 
@@ -570,6 +715,9 @@ int main (void)
 
         //sprintf(p_buff,"wow");
         //gfx_puts(p_buff);
+
+        //flash check;
+        f_print_id(f_read_id());
 
         while (1) {
 
