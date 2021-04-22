@@ -17,8 +17,6 @@
 #include "usb.h"
 //#include <stdlib.h>
 
-
-
 // header file
 #define swap(a,b) {int16_t t=a;a=b;b=t;}
 
@@ -38,6 +36,16 @@
 #define TFT9341_MAGENTA 0xF81F
 #define TFT9341_YELLOW  0xFFE0
 #define TFT9341_WHITE   0xFFFF
+
+#define printt(param, ... ) ({ \
+		char ___BUFF[1024]; \
+		memset(___BUFF, 0, 1024); \
+		if("##__VA_ARGS__") \
+			sprintf(___BUFF, param, ##__VA_ARGS__); \
+		else \
+			sprintf(___BUFF, param); \
+		gfx_puts(___BUFF); \
+})
 
 uint16_t display_width; // this thing could be static
 uint16_t display_hight; // this thing could be static
@@ -92,6 +100,7 @@ static void clock_init(void)
 	// as page 79 DS tells to operate at high frequency, we need to supply more power
 	// by setting VOS=1 bit in power register
 	rcc_periph_clock_enable(RCC_PWR);
+
 	pwr_set_vos_scale(PWR_SCALE1);
 	rcc_periph_clock_disable(RCC_PWR);	// no need to configure or use features requiring clock
 
@@ -273,7 +282,7 @@ void spi_tft_init (void)
 #define W25_ENR 0x66
 #define W25_R 0x99
 #define W25_READ 0x03
-#define W25_JED_ID 0xF9
+#define W25_JED_ID 0x9f
 
 uint8_t rx_buf[1025];
 uint8_t tx_buf[10];
@@ -285,19 +294,14 @@ void spi_flash_init (void)
 	//PB13 yelow CLK
 	//PD8 brown CS
 	//PB14 read DO (miso)
-
 	rcc_periph_clock_enable(RCC_GPIOB);
 	rcc_periph_clock_enable(RCC_GPIOD);
 
-	GPIO_MODER(GPIOD) |= GPIO_MODE(8, GPIO_MODE_OUTPUT);
-	GPIO_MODER(GPIOB) |= GPIO_MODE(13, GPIO_MODE_OUTPUT);
-	GPIO_MODER(GPIOB) |= GPIO_MODE(14, GPIO_MODE_OUTPUT);
-	GPIO_MODER(GPIOB) |= GPIO_MODE(15, GPIO_MODE_OUTPUT);
-
 	gpio_set_output_options(GPIOD, GPIO_OTYPE_PP, GPIO_OSPEED_100MHZ, (1 << 8));
 	gpio_set_output_options(GPIOB, GPIO_OTYPE_PP, GPIO_OSPEED_100MHZ, (1 << 13) | (1 << 14) | (1 << 15));
-	gpio_set_af(GPIOA, GPIO_AF5, (1 << 13) | (1 << 14) | (1 << 15));
-	gpio_mode_setup(GPIOA, GPIO_MODE_AF, GPIO_PUPD_NONE, (1 << 13) | (1 << 14) | (1 << 15));
+	gpio_set_af(GPIOB, GPIO_AF5, (1 << 13) | (1 << 14) | (1 << 15));
+	gpio_mode_setup(GPIOB, GPIO_MODE_AF, GPIO_PUPD_NONE, (1 << 13) | (1 << 14) | (1 << 15));
+	gpio_mode_setup(GPIOD, GPIO_MODE_OUTPUT, GPIO_PUPD_NONE, (1 << 8));
 	// manual cs
 
 	rcc_periph_clock_enable(RCC_SPI2);
@@ -305,7 +309,7 @@ void spi_flash_init (void)
 	spi_disable(SPI2);
 
 	// in case of problems with data transfer
-	spi_set_baudrate_prescaler(SPI2, SPI_CR1_BR_FPCLK_DIV_32);
+	spi_set_baudrate_prescaler(SPI2, SPI_CR1_BR_FPCLK_DIV_2);
 
 	spi_set_master_mode(SPI2);
 
@@ -325,7 +329,10 @@ void spi_flash_init (void)
 	//cpha = 0
 	//cpol = 0
 
-	spi_enable(SPI1);
+	spi_enable(SPI2);
+
+	//cs off
+	flash_csdis();
 }
 
 static void flash_tx(uint32_t len, void *data)
@@ -355,26 +362,27 @@ static void flash_rx(uint32_t len, void *data)
 		return;
 
 	for (int32_t i = len - 1; i >= 0; i--) {
-		spi_send(SPI1, 0);
-		d[i] = spi_read(SPI1);
+		spi_send(SPI2, 0);
+		d[i] = spi_read(SPI2);
 	}
 }
 
 void flash_csen()
 {
-	gpio_set(GPIOD, 1 << 8);
+	gpio_clear(GPIOD, 1 << 8);
 }
 
 void flash_csdis()
 {
-	gpio_clear(GPIOD, 1 << 8);
+	gpio_set(GPIOD, 1 << 8);
 }
 
 void flash_reset()
 {
+
+	tx_buf[0] = W25_R;
+	tx_buf[1] = W25_ENR;
 	flash_csen();
-	tx_buf[0] = W25_ENR;
-	tx_buf[1] = W25_R;
 	flash_tx(2, tx_buf);
 	flash_csdis();
 }
@@ -388,11 +396,12 @@ void flash_init()
 
 void flash_read_data(uint32_t addr, uint8_t* data, uint32_t sz)
 {
-	flash_csen();
+
 	tx_buf[0] = W25_READ;
 	tx_buf[1] = (addr >> 16) & 0xFF;
 	tx_buf[2] = (addr >> 8) & 0xFF;
 	tx_buf[3] = addr & 0xFF;
+	flash_csen();
 	flash_tx(4 ,tx_buf);
 	flash_rx(sz ,data);
 	flash_csdis();
@@ -405,7 +414,7 @@ uint32_t f_read_id(void) {
 	flash_tx(1, tx_buf);
 	flash_rx(3, dt);
 	flash_csdis();
-	return (dt[0] << 16) | (dt[1] << 8) | (dt[2]);
+	return (dt[2] << 16) | (dt[1] << 8) | (dt[0]);
 }
 
 uint32_t f_print_id(uint32_t id)
@@ -670,15 +679,18 @@ int main (void)
         rcc_periph_clock_enable(RCC_TIM7);
         glsk_pins_init(DISCOVER);
         //timer init
-        sk_pin_set(sk_io_led_red, true);
+
         clock_init();
         timer_7_init(upd_on_ovf, 168000000ul, 1000ul , 16ul);
-        sk_pin_toggle(sk_io_led_red);
+
         //spi initializep
         mode_TFT_pins();
         cs_off();
+
+        sk_pin_toggle(sk_io_led_red);
+        spi_flash_init();
         flash_init();
-        flash_csdis();
+        sk_pin_toggle(sk_io_led_red);
         spi_tft_init();
         usb_vcp_init();
 
@@ -717,8 +729,11 @@ int main (void)
         //gfx_puts(p_buff);
 
         //flash check;
-        f_print_id(f_read_id());
+        uint32_t dat;
+        dat = f_read_id();
+        f_print_id(dat);
 
+        printt("fuck %s", "you");
         while (1) {
 
         	if (len >= sizeof(buf)) {
@@ -757,7 +772,6 @@ int main (void)
         	__WFI(); // waiting for usb otg fs interrupt
             nvic_disable_irq(NVIC_TIM7_IRQ);
          }
-
 
 
 
