@@ -37,7 +37,10 @@
 #define TFT9341_YELLOW  0xFFE0
 #define TFT9341_WHITE   0xFFFF
 
-#define printt(param, ... ) ({ \
+#define MAX_NUM_ARGS 100
+#define MAX_PARAM_LEN 40
+
+#define printtft(param, ... ) ({ \
 		char ___BUFF[1024]; \
 		memset(___BUFF, 0, 1024); \
 		if("##__VA_ARGS__") \
@@ -50,6 +53,71 @@
 uint16_t display_width; // this thing could be static
 uint16_t display_hight; // this thing could be static
 
+static char in_buf [1024] ;
+
+struct data_str {
+	char data[MAX_NUM_ARGS][MAX_PARAM_LEN];
+	char params[MAX_NUM_ARGS][MAX_PARAM_LEN];
+	int dat_amm;
+	int param_amm;
+};
+
+ struct data_str data_str = {0};
+
+static inline void print_duarrp(int val_1) {
+	for(int i = 0; i < MAX_PARAM_LEN; i++)
+		printtft("%c",data_str.params[val_1][i]);
+}
+
+static inline void print_duarrv(int val_1) {
+	for(int i = 0; i < MAX_PARAM_LEN; i++)
+		printtft("%c",data_str.data[val_1][i]);
+}
+
+static inline int print_all() {
+	static int call_amm;
+	if(data_str.dat_amm != data_str.param_amm) return 1;
+	for(int i = 0; i < data_str.param_amm; i++) {
+		print_duarrp(i);
+		printtft(" = ");
+		print_duarrv(i);
+		printtft("\n");
+	}
+	call_amm++;
+	return 0;
+}
+
+void parse_print(char *string, size_t s_sz) {
+        int i;
+        int jpar;
+        int par_cnt = 0;
+        int last_j = 0;
+        int jval;
+        int val_cnt = 0;
+        for(i=0; i < s_sz; i++) {
+                if (string[i] == '=') { // param
+                        for(jpar=last_j; jpar < i; jpar++) {
+                                data_str.params[data_str.param_amm] [jpar - last_j] = string[jpar];
+                                //printtft("%c,%c ;par_cnt = %d, jpar = %d \n", data_str.params[data_str.param_amm] [jpar] ,string[jpar],data_str.param_amm,jpar);
+                        }
+                        data_str.param_amm ++;
+                        last_j = i + 1;
+
+                } else if (string[i] == ';') {
+						for(jval=last_j; jval < i; jval++) {
+								data_str.data[data_str.dat_amm] [jval - last_j] = string[jval];
+								//printtft("%c,%c ;val_cnt = %d, jval = %d \n", data_str.data[data_str.dat_amm] [jval] ,string[jval],data_str.dat_amm,jval);
+						}
+						data_str.dat_amm ++;
+						last_j = i + 1;
+                }
+
+        }
+
+                                //printtft("received param %s; last_p_j = %d;  last_v_j = %d\n", data_str.params[par_cnt], last_p_j, last_v_j);
+}
+
+
 //header file
 
 sk_pin TFT_DC     = { .port=sk_port_A, .pin=3, .inv=false, .pull=GPIO_PUPD_PULLUP, .mode=GPIO_MODE_OUTPUT};
@@ -60,18 +128,6 @@ sk_pin TFT_CS     = { .port=sk_port_A, .pin=4, .inv=false, .pull=GPIO_PUPD_NONE,
 //PB13 yelow CLK
 //PD8 brown CS
 //PB14 read DO (miso)
-
-
-static const char* parametrs[] = {
-        "T = %s C\n",
-        "overal load %s\n",
-        "core0 speed %s\n",
-        "core1 speed %s\n",
-        "core2 speed %s\n",
-        "core3 speed %s\n"
-};
-
-static uint8_t param_sz = sizeof(parametrs) / sizeof(char*);
 
 static void clock_init(void)
 {
@@ -133,7 +189,7 @@ static void clock_init(void)
 	// PLLN = 168   -- F<main> = 2 * 168 = 336 MHz
 	// PLLP = 2		-- F<genout> = 336 / 2 = 168 MHz for our CPU and AHB
 	// PLLQ = 7		-- F<Qdomain> = 336 / 7 = 48 MHz exactly
-	rcc_set_main_pll_hse(4, 168, 2, 7, 0);		// with input from HSE to PLL
+	rcc_set_main_pll_hse(4, 168, 4, 7, 0);		// with input from HSE to PLL
 	rcc_css_disable();		// Disable clock security system
 	rcc_osc_on(RCC_PLL);				// Enable PLL
 	while (!rcc_is_osc_ready(RCC_PLL)); // Wait for PLL out clock to stabilize
@@ -146,16 +202,16 @@ static void clock_init(void)
 	// APB1 should not exceed 42 MHz		-- divide AHB by /4 = 168 / 4 = 42 MHz
 	// APB2 should not exceed 84 MHz		-- divide AHB by /2 = 168 / 2 = 84 MHz
 	rcc_set_hpre(RCC_CFGR_HPRE_DIV_NONE);
-    rcc_set_ppre1(RCC_CFGR_PPRE_DIV_4);
-    rcc_set_ppre2(RCC_CFGR_PPRE_DIV_2);
+    rcc_set_ppre1(RCC_CFGR_PPRE_DIV_2);
+    rcc_set_ppre2(RCC_CFGR_PPRE_DIV_NONE);
 
 	// Enable caches. Flash is slow (around 30 MHz) and CPU is fast (168 MHz)
 	flash_dcache_enable();
 	flash_icache_enable();
 
 	// IMPORTANT! We must increase flash wait states (latency)
-	// otherwise fetches from flash will ultimately fail
-	flash_set_ws(FLASH_ACR_LATENCY_7WS);
+	//otherwise fetches from flash will ultimately fail
+	flash_set_ws(FLASH_ACR_LATENCY_4WS);
 
 	// Select PLL as AHB bus (and CPU clock) source
     rcc_set_sysclk_source(RCC_CFGR_SW_PLL);
@@ -163,17 +219,13 @@ static void clock_init(void)
 	rcc_wait_for_sysclk_status(RCC_PLL);
 
 	// set by hand since we've not used rcc_clock_setup_pll
-	rcc_ahb_frequency = 168000000ul;
-	rcc_apb1_frequency = rcc_ahb_frequency / 4;
-	rcc_apb2_frequency = rcc_ahb_frequency / 2;
+	rcc_ahb_frequency = 84000000ul;
+	rcc_apb1_frequency = rcc_ahb_frequency / 2;
+	rcc_apb2_frequency = rcc_ahb_frequency;
 
 	// Disable internal 16 MHz RC oscillator (HSI)
 	rcc_osc_off(RCC_HSI);
 }
-
-
-
-
 
 static inline void dc_data(void)
 {
@@ -433,7 +485,7 @@ void set_addr_window(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1)
         data[0] = (x0 >> 8) & 0xFF;
         data[1] = x0 & 0xFF;
         data[2] = (x1 >> 8) & 0xFF;
-        data[3] = x1 & 0xFF; // different from original version
+        data[3] = x1 & 0xFF;
         write_data_spi_tft(data, 4);
 
         send_command_spi_tft(0x2B);
@@ -441,7 +493,7 @@ void set_addr_window(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1)
         data[0] = (y0 >> 8) & 0xFF;
         data[1] = y0 & 0xFF;
         data[2] = (y1 >> 8) & 0xFF;
-        data[3] = y1 & 0xFF; // different from original version
+        data[3] = y1 & 0xFF;
         write_data_spi_tft(data,4);
 
         send_command_spi_tft(0x2C);
@@ -457,7 +509,7 @@ void tft_fill_rect(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_t 
 	if(y1>y2) swap(y1,y2);
 
         set_addr_window(x1, y1, x2, y2);
-        uint8_t data[] = { color >> 8 & 0xFF, color & 0xFF}; // different from original version
+        uint8_t data[] = { color >> 8 & 0xFF, color & 0xFF};
         for(uint32_t i = 0; i < (x2-x1+1)*(y2-y1+1); i++)
         {
                 write_data_spi_tft(data, 2);
@@ -587,12 +639,12 @@ void display_init(uint16_t display_w, uint16_t display_h)
         data[2] = 0x27;//320 строк
         send_command_spi_tft(0xB6);
         write_data_spi_tft(data, 3);
-        //Enable 3G (пока не знаю что это за режим)
+        //Enable 3G
         data[0] = 0x00;//не включаем
         send_command_spi_tft(0xF2);
         write_data_spi_tft(data, 1);
         //Gamma set
-        data[0] = 0x01;//Gamma Curve (G2.2) (Кривая цветовой гаммы)
+        data[0] = 0x01;//Gamma Curve 
         send_command_spi_tft(0x26);
         write_data_spi_tft(data, 1);
         //Positive Gamma  Correction
@@ -631,9 +683,9 @@ void display_init(uint16_t display_w, uint16_t display_h)
         data[14] = 0x0F;
         send_command_spi_tft(0xE1);
         write_data_spi_tft(data, 15);
-        send_command_spi_tft(0x11);//Выйдем из спящего режима
+        send_command_spi_tft(0x11);
         t7_delay_ms(120);
-        //display on
+
         data[0] = TFT9341_ROTATION;
         send_command_spi_tft(0x29);
         write_data_spi_tft(data, 1);
@@ -642,33 +694,9 @@ void display_init(uint16_t display_w, uint16_t display_h)
         display_width = display_w;
 }
 
-void parce_print(char *string, size_t s_sz) {
-        int i;
-        int j;
-        int param_i = 0;
-        char boof[10];
-        char print_boof[50];
-        int last_p = 0;
-        for(i=0; i < s_sz; i++) {
-                if (string[i] == '-') {
-                        for(j=last_p; j < i; j++) {
-                                boof[j - last_p] = string[j];
-                                // sprintf(print_boof,"%c", string[j]);
-                        	// gfx_puts(print_boof);
-                                // sprintf(print_boof,"-/%d/ \n", i);
-                        	// gfx_puts(print_boof);
-                        }
 
-                        last_p = i + 1;
-                        // sprintf(print_boof,"\n");
-                        // gfx_puts(print_boof);
-                        sprintf(print_boof, parametrs[param_i++], boof);
-                        gfx_puts(print_boof);
-                        memset(boof, 0, 10);
-                        memset(print_boof, 0, 50);
-                }
-        }
-}
+
+
 
 int main (void)
 {
@@ -681,7 +709,7 @@ int main (void)
         //timer init
 
         clock_init();
-        timer_7_init(upd_on_ovf, 168000000ul, 1000ul , 16ul);
+        timer_7_init(upd_on_ovf, 84000000ul, 1000ul , 84ul);
 
         //spi initializep
         mode_TFT_pins();
@@ -709,10 +737,10 @@ int main (void)
         // gfx_drawPixel(101,101, GFX_COLOR_WHITE);
         // cs_off();
 
-        tft_set_rotation(3);
-        gfx_setCursor(0,40);
+        tft_set_rotation(2);
+        gfx_setCursor(0,0);
         gfx_setTextColor(GFX_COLOR_GREEN, TFT9341_BLACK);
-        gfx_setTextSize(2);
+        gfx_setTextSize(1);
 
         cs_active();
 
@@ -725,79 +753,61 @@ int main (void)
         size_t len = 0;
         //size_t l = 1;
 
+
+        char *str = "par1=11;par2=12;par3=13;par4=14;par5=15;par6=16;";
+        //parse_print(str ,strlen(str));
+
+       /* char arr[10][10] = {{'a','a','a'}};
+        arr[1][1] = "1";
+
+        printtft("%c",arr[0][1]);
+
+        print_duarr(&arr);
+*/
         //sprintf(p_buff,"wow");
         //gfx_puts(p_buff);
 
         //flash check;
         uint32_t dat;
         dat = f_read_id();
-        f_print_id(dat);
+        //f_print_id(dat);
 
-        printt("fuck %s", "you");
-        while (1) {
+
+
+int vall;
+
+    while (1) {
 
         	if (len >= sizeof(buf)) {
 	 		break;
         	}
 
         	if (usb_vcp_avail()) {
-                   if(!isclean) {
-        //                         fill_screen(TFT9341_BLACK);
-        //                         gfx_setCursor(0,40);
-        //                         isclean =true;
+				while (usb_vcp_avail()) {
+					char ch = usb_vcp_recv_byte();
+					in_buf[len++] = ch;
+					//printtft("%c",ch);
+					// sprintf(p_buff,"-%ds\n", len); //reading all special simbols
+					// gfx_puts(p_buff);
+					// memset(p_buff,0,256);
+
+				}
+				isWriten = true;
+	 		}
+
+        	if(isWriten) {
+                parse_print(in_buf, strlen(in_buf));
+                memset(in_buf,0,256);
+                isWriten = false;
+                len = 0;
             }
-	 		char ch = usb_vcp_recv_byte();
-	 		buf[len++] = ch;
-	 			sprintf(p_buff,"%c", ch); //reading all special simbols
-                gfx_puts(p_buff);
-                         // sprintf(p_buff,"-%ds\n", len); //reading all special simbols
-                 	// gfx_puts(p_buff);
-                         // memset(p_buff,0,256);
 
-                         isWriten = true;
-        	}
+        	print_all();
 
-        //         if (!usb_vcp_avail() && isWriten) {
-        //                 sprintf(p_buff, "%s", buf); //reading all special simbols
-        //         	gfx_puts(p_buff);
-        //                 parce_print(p_buff, strlen(p_buff));
-        //                 memset(p_buff,0,256);
-        //                 memset(buf,0,128);
-        //                 isWriten = false;
-        //                 isclean = false;
-        //                 len = 0;
-        //         }
-        //
-        	nvic_disable_irq(NVIC_TIM7_IRQ);
-        	__WFI(); // waiting for usb otg fs interrupt
-            nvic_disable_irq(NVIC_TIM7_IRQ);
+        	while(!usb_vcp_avail());
          }
 
 
-
-        // char boof[100];
-        // char *str;
-        // while(1) { int rot = 0;
-        //
-        // fill_screen(TFT9341_BLACK);
-        //
-        // for(int i = 0; i<10; i++) {
-        //         sprintf(boof, "%s ; %d \n", "hi maaan", i);
-        //         cs_active( );
-        //         gfx_puts(boof);
-        //         cs_off();
-        // }
-        //
-        // str = "--------------------";
-        // cs_active();
-        // gfx_puts(str);
-        // cs_off();
-        //
-        // gfx_setCursor(0, 0);
-        //
-        // t7_delay_sec(5);
-        // rot++;
-        // }
 
 
         return 0;
